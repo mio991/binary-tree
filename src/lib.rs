@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+/// A binary tree implementation based on a slice of Option<(K, V)>
+#[derive(Clone)]
 pub struct BinaryTree<K, V>(Box<[Option<(K, V)>]>);
 
 impl<K, V> BinaryTree<K, V> {
@@ -15,6 +17,10 @@ impl<K, V> BinaryTree<K, V> {
                 .take(capacity)
                 .collect(),
         )
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -51,7 +57,6 @@ impl<K: Debug, V: Debug> Debug for BinaryTree<K, V> {
 impl<K, V> BinaryTree<K, V>
 where
     K: Ord,
-    K: Debug,
 {
     fn find_index(&self, key: &K) -> usize {
         let Self(mem) = self;
@@ -90,7 +95,18 @@ where
             cell.replace((key, value)).map(|kv| kv.1)
         } else {
             // Either rebalance or grow
-            todo!()
+
+            let new_capacity = self.capacity() * 2;
+
+            self.0 = self
+                .0
+                .iter_mut() // We have to do iter_mut to move everything
+                .map(Option::take) // We move out of old_inner
+                .chain(std::iter::repeat_with(Default::default))
+                .take(new_capacity)
+                .collect();
+
+            self.insert(key, value)
         }
     }
 
@@ -101,6 +117,93 @@ where
             cell.as_ref().map(|kv| &kv.1)
         } else {
             None
+        }
+    }
+}
+
+impl<K, V> IntoIterator for BinaryTree<K, V> {
+    type Item = (K, V);
+    type IntoIter = BinaryTreeIter<K, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Self::IntoIter {
+            indexer: BiTreeIndexIter::new(self.capacity()),
+            tree: self,
+        }
+    }
+}
+
+///
+/// Iterates over a BinaryTree in order.
+///
+pub struct BinaryTreeIter<K, V> {
+    tree: BinaryTree<K, V>,
+    indexer: BiTreeIndexIter,
+}
+
+impl<K, V> Iterator for BinaryTreeIter<K, V> {
+    type Item = (K, V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(index) = self.indexer.next() {
+            // SAFETY: BiTreeIndexIter is limited to the capacity of tree.0
+            if let Some(res) = unsafe { self.tree.0.get_unchecked_mut(index) }.take() {
+                return Some(res);
+            }
+        }
+        None
+    }
+}
+
+struct BiTreeIndexIter {
+    capacity: usize,
+    stack: Vec<usize>,
+    current: Option<usize>,
+}
+
+impl BiTreeIndexIter {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            stack: Vec::new(),
+            current: Some(0),
+        }
+    }
+
+    fn left(&self, node: usize) -> Option<usize> {
+        let index = node * 2 + 1;
+
+        if index < self.capacity {
+            Some(index)
+        } else {
+            None
+        }
+    }
+
+    fn right(&self, node: usize) -> Option<usize> {
+        let index = node * 2 + 2;
+
+        if index < self.capacity {
+            Some(index)
+        } else {
+            None
+        }
+    }
+}
+
+impl Iterator for BiTreeIndexIter {
+    type Item = usize;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if let Some(node) = self.current {
+                self.stack.push(node);
+                self.current = self.left(node);
+            } else if let Some(node) = self.stack.pop() {
+                self.current = self.right(node);
+                return Some(node);
+            } else {
+                return None;
+            }
         }
     }
 }
@@ -120,11 +223,32 @@ mod tests {
 
         assert_eq!(b_tree.get(&2), Some("zwei").as_ref());
         assert_eq!(b_tree.get(&5), Some("fünf").as_ref());
+    }
 
-        println!("{:?}", &b_tree);
+    #[test]
+    fn it_grows() {
+        let mut b_tree = BinaryTree::with_capacity(2);
 
-        b_tree.insert(6, "sechs");
+        b_tree.insert(7, "sieben");
+        b_tree.insert(4, "vier");
+        b_tree.insert(2, "zwei");
+        b_tree.insert(5, "fünf");
 
-        println!("{:?}", &b_tree);
+        assert_eq!(b_tree.get(&2), Some("zwei").as_ref());
+        assert_eq!(b_tree.get(&5), Some("fünf").as_ref());
+    }
+
+    #[test]
+    fn iter_it() {
+        let mut b_tree = BinaryTree::with_capacity(32);
+
+        b_tree.insert(7, "sieben");
+        b_tree.insert(4, "vier");
+        b_tree.insert(2, "zwei");
+        b_tree.insert(5, "fünf");
+
+        let vec: Vec<_> = b_tree.into_iter().map(|kv| kv.0).collect();
+
+        assert_eq!(vec, vec![2, 4, 5, 7])
     }
 }
