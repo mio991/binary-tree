@@ -47,12 +47,12 @@ impl<K: Debug, V: Debug> Debug for BinaryTree<K, V> {
 ///         +-------+-------+
 ///         E1              E2
 ///     +---+---+       +---+---+
-///     E3      E4      E5      E6
+///     E3      ()      E5      E6
 ///   +-+-+   +-+-+   +-+-+   +-+-+
 ///   ()  E8  ()  ()  E11 E12 ()  E14
 ///
 /// +----+----+----+----+----+----+----+----+----+----+----+-----+-----+----+-----+
-/// | E0 | E1 | E2 | E3 | E4 | E5 | E6 | () | E8 | () | () | E11 | E12 | () | E14 |
+/// | E0 | E1 | E2 | E3 | () | E5 | E6 | () | E8 | () | () | E11 | E12 | () | E14 |
 /// +----+----+----+----+----+----+----+----+----+----+----+-----+-----+----+-----+
 impl<K, V> BinaryTree<K, V>
 where
@@ -78,9 +78,9 @@ where
                 // Walk further
 
                 index = if key < r_key {
-                    index * 2 + 1
+                    BiTree::left(index)
                 } else {
-                    index * 2 + 2
+                    BiTree::right(index)
                 }
             }
         }
@@ -92,22 +92,28 @@ where
         let index = self.find_index(&key);
 
         if let Some(cell) = self.0.get_mut(index) {
-            cell.replace((key, value)).map(|kv| kv.1)
+            let result = cell.replace((key, value)).map(|kv| kv.1);
+
+            // TODO: check balance
+
+            result
         } else {
-            // Either rebalance or grow
-
-            let new_capacity = self.capacity() * 2;
-
-            self.0 = self
-                .0
-                .iter_mut() // We have to do iter_mut to move everything
-                .map(Option::take) // We move out of old_inner
-                .chain(std::iter::repeat_with(Default::default))
-                .take(new_capacity)
-                .collect();
+            self.grow();
 
             self.insert(key, value)
         }
+    }
+
+    fn grow(&mut self) {
+        let new_capacity = self.capacity() * 2;
+
+        self.0 = self
+            .0
+            .iter_mut() // We have to do iter_mut to move everything
+            .map(Option::take) // We move out of old_inner
+            .chain(std::iter::repeat_with(Default::default))
+            .take(new_capacity)
+            .collect();
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
@@ -118,6 +124,32 @@ where
         } else {
             None
         }
+    }
+}
+
+mod BiTree {
+    pub fn is_right(index: usize) -> bool {
+        index % 2 == 0
+    }
+
+    pub fn parrent(index: usize) -> Option<usize> {
+        if index > 0 {
+            Some(if is_right(index) {
+                (index - 2) / 2
+            } else {
+                (index - 1) / 2
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn right(index: usize) -> usize {
+        index * 2 + 2
+    }
+
+    pub fn left(index: usize) -> usize {
+        index * 2 + 1
     }
 }
 
@@ -171,7 +203,7 @@ impl BiTreeIndexIter {
     }
 
     fn left(&self, node: usize) -> Option<usize> {
-        let index = node * 2 + 1;
+        let index = BiTree::left(node);
 
         if index < self.capacity {
             Some(index)
@@ -181,7 +213,7 @@ impl BiTreeIndexIter {
     }
 
     fn right(&self, node: usize) -> Option<usize> {
-        let index = node * 2 + 2;
+        let index = BiTree::right(node);
 
         if index < self.capacity {
             Some(index)
@@ -214,7 +246,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let mut b_tree = BinaryTree::with_capacity(32);
+        let mut b_tree = BinaryTree::with_capacity(8);
 
         b_tree.insert(7, "sieben");
         b_tree.insert(4, "vier");
@@ -223,6 +255,32 @@ mod tests {
 
         assert_eq!(b_tree.get(&2), Some("zwei").as_ref());
         assert_eq!(b_tree.get(&5), Some("fünf").as_ref());
+    }
+
+    #[test]
+    fn balancing(){
+        let mut b_tree = BinaryTree::with_capacity(8);
+
+        b_tree.insert(1, "eins");
+        println!("{:#?}", b_tree);
+        b_tree.insert(2, "zwei");
+        println!("{:#?}", b_tree);
+        b_tree.insert(3, "drei");
+        println!("{:#?}", b_tree);
+        b_tree.insert(4, "vier");
+        println!("{:#?}", b_tree);
+        b_tree.insert(5, "fünf");
+        println!("{:#?}", b_tree);
+        b_tree.insert(6, "sechs");
+        println!("{:#?}", b_tree);
+        b_tree.insert(7, "sieben");
+        println!("{:#?}", b_tree);
+
+        
+        let vec: Vec<_> = b_tree.into_iter().map(|kv| kv.0).collect();
+
+        assert_eq!(vec, vec![1,2,3,4,5,6,7])
+
     }
 
     #[test]
